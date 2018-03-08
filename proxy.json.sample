@@ -1,0 +1,9 @@
+{
+  "checkInterval": 5,
+  "proxies": {
+    "localhost:8080": "mainapp",
+    "127.0.0.1/status": "status",
+    "/hello": "welcome",
+    "forDev": ".*?/(.*?)(/.*)"
+  }
+}

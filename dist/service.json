@@ -1,0 +1,13 @@
+{
+  "listen": ":80",
+  "rwTimeout": 5000,
+  "keepaliveTimeout": 5000,
+  "callTimeout": 5000,
+  "logFile": "",
+  "certFile": "",
+  "keyFile": "",
+
+  "registry": "discover:15",
+  "registryCalls": "discover:15",
+  "registryPrefix": "DC_"
+}
