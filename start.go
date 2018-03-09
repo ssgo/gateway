@@ -13,6 +13,7 @@ import (
 
 var dcCache *redis.Redis
 var proxies = map[string]string{}
+var regexProxiesSet = map[string]string{}
 var regexProxies = make([]*regexp.Regexp, 0)
 var config = struct {
 	CheckInterval int
@@ -26,7 +27,7 @@ func main() {
 	dcCache = redis.GetRedis(conf.RegistryCalls)
 	base.LoadConfig("proxy", &config)
 	if config.CheckInterval == 0 {
-		config.CheckInterval = 3
+		config.CheckInterval = 10
 	} else if config.CheckInterval < 3 {
 		config.CheckInterval = 3
 	}
@@ -36,8 +37,10 @@ func main() {
 		configProxies[k] = *v
 	}
 	updateCalls(configProxies)
+
 	proxiesVersion = dcCache.GET("proxiesVersion").Int()
-	updateCalls(dcCache.Do("HGETALL", "proxies").StringMap())
+	updateCalls(dcCache.Do("HGETALL", "_proxies").StringMap())
+
 	s.SetProxyBy(proxy)
 	go syncCalls()
 	s.Start1()
@@ -94,7 +97,7 @@ func syncCalls() {
 		pv := dcCache.GET("proxiesVersion").Int()
 		if pv > proxiesVersion {
 			proxiesVersion = pv
-			if updateCalls(dcCache.Do("HGETALL", "proxies").StringMap()) {
+			if updateCalls(dcCache.Do("HGETALL", "_proxies").StringMap()) {
 				s.RestartDiscoverSyncer()
 			}
 		}
@@ -107,6 +110,9 @@ func syncCalls() {
 func updateCalls(in map[string]string) bool {
 	updated := false
 	for k, v := range in {
+		if v == proxies[k] || v == regexProxiesSet[k] {
+			continue
+		}
 		log.Printf("Proxy Register	%s	%s", k, v)
 
 		if strings.Contains(v, "(") {
@@ -115,6 +121,7 @@ func updateCalls(in map[string]string) bool {
 				log.Print("Proxy Error	Compile	", err)
 			} else {
 				regexProxies = append(regexProxies, matcher)
+				regexProxiesSet[k] = v
 				continue
 			}
 		}
