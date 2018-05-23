@@ -9,5 +9,5 @@
 
   "registry": "discover:15",
   "registryCalls": "discover:15",
-  "registryPrefix": "DC_"
+  "registryPrefix": ""
 }

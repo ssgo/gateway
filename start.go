@@ -19,7 +19,7 @@ var config = struct {
 	CheckInterval int
 	Proxies       map[string]*string
 }{}
-var proxiesVersion int
+//var proxiesVersion int
 
 func main() {
 	s.Init()
@@ -38,7 +38,7 @@ func main() {
 	}
 	updateCalls(configProxies)
 
-	proxiesVersion = dcCache.GET("proxiesVersion").Int()
+	//proxiesVersion = dcCache.GET("proxiesVersion").Int()
 	updateCalls(dcCache.Do("HGETALL", "_proxies").StringMap())
 
 	s.SetProxyBy(proxy)
@@ -47,28 +47,48 @@ func main() {
 }
 
 func proxy(request *http.Request) (toApp, toPath *string, headers *map[string]string) {
-	// Host 匹配
-	a := proxies[request.Host]
-	if a != "" {
-		return &a, &request.RequestURI, nil
-	}
-
-	paths := strings.SplitN(request.RequestURI, "/", 3)
-	if len(paths) == 3 {
-		p1 := "/" + paths[1]
-		p2 := "/" + paths[2]
+	// 匹配二级目录
+	paths := strings.SplitN(request.RequestURI, "/", 4)
+	if len(paths) == 4 {
+		p1 := "/" + paths[1] + "/" + paths[2]
+		p2 := "/" + paths[3]
 
 		// Host + Path 匹配
-		a = proxies[request.Host+p1]
+		a := proxies[request.Host+p1]
 		if a != "" {
-			return &a, &p2, nil
+			return &a, &p2, &map[string]string{"Proxy-Path": p1}
 		}
 
 		// Path 匹配
 		a = proxies[p1]
 		if a != "" {
-			return &a, &p2, nil
+			return &a, &p2, &map[string]string{"Proxy-Path": p1}
 		}
+	}
+
+	// 匹配一级目录
+	paths = strings.SplitN(request.RequestURI, "/", 3)
+	if len(paths) == 3 {
+		p1 := "/" + paths[1]
+		p2 := "/" + paths[2]
+
+		// Host + Path 匹配
+		a := proxies[request.Host+p1]
+		if a != "" {
+			return &a, &p2, &map[string]string{"Proxy-Path": p1}
+		}
+
+		// Path 匹配
+		a = proxies[p1]
+		if a != "" {
+			return &a, &p2, &map[string]string{"Proxy-Path": p1}
+		}
+	}
+
+	// 匹配 Host
+	a := proxies[request.Host]
+	if a != "" {
+		return &a, &request.RequestURI, nil
 	}
 
 	// 模糊匹配
@@ -77,7 +97,12 @@ func proxy(request *http.Request) (toApp, toPath *string, headers *map[string]st
 		for _, m := range regexProxies {
 			finds := m.FindAllStringSubmatch(requestUrl, 20)
 			if len(finds) > 0 && len(finds[0]) > 2 {
-				return &finds[0][1], &finds[0][2], nil
+				var hh *map[string]string
+				pos := strings.Index(request.RequestURI, finds[0][2])
+				if pos > 0 {
+					hh = &map[string]string{"Proxy-Path": request.RequestURI[0:pos]}
+				}
+				return &finds[0][1], &finds[0][2], hh
 			}
 		}
 	}
@@ -94,13 +119,14 @@ func syncCalls() {
 				break
 			}
 		}
-		pv := dcCache.GET("proxiesVersion").Int()
-		if pv > proxiesVersion {
-			proxiesVersion = pv
-			if updateCalls(dcCache.Do("HGETALL", "_proxies").StringMap()) {
-				s.RestartDiscoverSyncer()
-			}
+		//pv := dcCache.GET("proxiesVersion").Int()
+		//if pv > proxiesVersion {
+		//	proxiesVersion = pv
+		if updateCalls(dcCache.Do("HGETALL", "_proxies").StringMap()) {
+			log.Printf("Proxy restart discover")
+			s.RestartDiscoverSyncer()
 		}
+		//}
 		if !s.IsRunning() {
 			break
 		}
@@ -127,7 +153,7 @@ func updateCalls(in map[string]string) bool {
 		}
 		proxies[k] = v
 
-		if s.AddCall(v, s.Call{}) {
+		if s.AddExternalApp(v, s.Call{}) {
 			updated = true
 		}
 	}
