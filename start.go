@@ -7,8 +7,8 @@ import (
 	"strings"
 	"github.com/ssgo/base"
 	"regexp"
-	"log"
 	"time"
+	"github.com/ssgo/discover"
 )
 
 var dcCache *redis.Redis
@@ -123,8 +123,12 @@ func syncCalls() {
 		//if pv > proxiesVersion {
 		//	proxiesVersion = pv
 		if updateCalls(dcCache.Do("HGETALL", "_proxies").StringMap()) {
-			log.Printf("Proxy restart discover")
-			s.RestartDiscoverSyncer()
+			s.Info("GW", s.Map{
+				"type": "restartDiscover",
+			})
+			//log.Printf("Proxy restart discover")
+			discover.Restart()
+			//s.RestartDiscoverSyncer()
 		}
 		//}
 		if !s.IsRunning() {
@@ -139,22 +143,38 @@ func updateCalls(in map[string]string) bool {
 		if v == proxies[k] || v == regexProxiesSet[k] {
 			continue
 		}
-		log.Printf("Proxy Register	%s	%s", k, v)
+		//log.Printf("Proxy Register	%s	%s", k, v)
 
 		if strings.Contains(v, "(") {
 			matcher, err := regexp.Compile("^" + v + "$")
 			if err != nil {
-				log.Print("Proxy Error	Compile	", err)
+				s.Warning("GW", s.Map{
+					"type": "compileFailed",
+					"key": k,
+					"value": v,
+					"error": err.Error(),
+				})
+				//log.Print("Proxy Error	Compile	", err)
 			} else {
+				s.Info("GW", s.Map{
+					"type": base.StringIf(regexProxiesSet[k] != "", "updateRegexpProxySet", "newRegexpProxySet"),
+					"key": k,
+					"value": v,
+				})
 				regexProxies = append(regexProxies, matcher)
 				regexProxiesSet[k] = v
-				continue
 			}
-		}
-		proxies[k] = v
-
-		if s.AddExternalApp(v, s.Call{}) {
-			updated = true
+		}else {
+			s.Info("GW", s.Map{
+				"type": base.StringIf(proxies[k] != "", "updateProxySet", "newProxySet"),
+				"key": k,
+				"value": v,
+			})
+			proxies[k] = v
+			//if s.AddExternalApp(v, s.Call{}) {
+			if discover.AddExternalApp(v, discover.CallInfo{}) {
+				updated = true
+			}
 		}
 	}
 	return updated
