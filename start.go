@@ -32,6 +32,23 @@ func main() {
 		config.CheckInterval = 3
 	}
 
+	//configProxies := map[string]string{}
+	//for k, v := range config.Proxies {
+	//	configProxies[k] = *v
+	//}
+	//updateCalls(configProxies)
+	//
+	////proxiesVersion = dcCache.GET("proxiesVersion").Int()
+	//updateCalls(dcCache.Do("HGETALL", "_proxies").StringMap())
+	//
+	//s.SetProxyBy(proxy)
+	//go syncCalls()
+	//s.Start1()
+
+
+	s.SetProxyBy(proxy)
+	as := s.AsyncStart1()
+
 	configProxies := map[string]string{}
 	for k, v := range config.Proxies {
 		configProxies[k] = *v
@@ -41,9 +58,8 @@ func main() {
 	//proxiesVersion = dcCache.GET("proxiesVersion").Int()
 	updateCalls(dcCache.Do("HGETALL", "_proxies").StringMap())
 
-	s.SetProxyBy(proxy)
-	go syncCalls()
-	s.Start1()
+	syncCalls()
+	as.Stop()
 }
 
 func proxy(request *http.Request) (toApp, toPath *string, headers *map[string]string) {
