@@ -1,14 +1,14 @@
 package main
 
 import (
-	"github.com/ssgo/redis"
 	"github.com/ssgo/s"
+	"github.com/ssgo/s/base"
+	"github.com/ssgo/s/discover"
+	"github.com/ssgo/s/redis"
 	"net/http"
-	"strings"
-	"github.com/ssgo/base"
 	"regexp"
+	"strings"
 	"time"
-	"github.com/ssgo/discover"
 )
 
 var dcCache *redis.Redis
@@ -19,6 +19,7 @@ var config = struct {
 	CheckInterval int
 	Proxies       map[string]*string
 }{}
+
 //var proxiesVersion int
 
 func main() {
@@ -44,7 +45,6 @@ func main() {
 	//s.SetProxyBy(proxy)
 	//go syncCalls()
 	//s.Start1()
-
 
 	s.SetProxyBy(proxy)
 	as := s.AsyncStart1()
@@ -165,25 +165,25 @@ func updateCalls(in map[string]string) bool {
 			matcher, err := regexp.Compile("^" + v + "$")
 			if err != nil {
 				s.Warning("GW", s.Map{
-					"type": "compileFailed",
-					"key": k,
+					"type":  "compileFailed",
+					"key":   k,
 					"value": v,
 					"error": err.Error(),
 				})
 				//log.Print("Proxy Error	Compile	", err)
 			} else {
 				s.Info("GW", s.Map{
-					"type": base.StringIf(regexProxiesSet[k] != "", "updateRegexpProxySet", "newRegexpProxySet"),
-					"key": k,
+					"type":  base.StringIf(regexProxiesSet[k] != "", "updateRegexpProxySet", "newRegexpProxySet"),
+					"key":   k,
 					"value": v,
 				})
 				regexProxies = append(regexProxies, matcher)
 				regexProxiesSet[k] = v
 			}
-		}else {
+		} else {
 			s.Info("GW", s.Map{
-				"type": base.StringIf(proxies[k] != "", "updateProxySet", "newProxySet"),
-				"key": k,
+				"type":  base.StringIf(proxies[k] != "", "updateProxySet", "newProxySet"),
+				"key":   k,
 				"value": v,
 			})
 			proxies[k] = v
