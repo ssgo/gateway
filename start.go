@@ -1,10 +1,13 @@
 package main
 
 import (
+	"github.com/ssgo/config"
+	"github.com/ssgo/discover"
+	"github.com/ssgo/log"
+	"github.com/ssgo/redis"
 	"github.com/ssgo/s"
-	"github.com/ssgo/s/base"
-	"github.com/ssgo/s/discover"
-	"github.com/ssgo/s/redis"
+	"github.com/ssgo/standard"
+	"github.com/ssgo/u"
 	"net/http"
 	"regexp"
 	"strings"
@@ -15,26 +18,24 @@ var dcCache *redis.Redis
 var proxies = map[string]string{}
 var regexProxiesSet = map[string]string{}
 var regexProxies = make([]*regexp.Regexp, 0)
-var config = struct {
+var gatewayConfig = struct {
 	CheckInterval int
 	Proxies       map[string]*string
 }{}
 
-//var proxiesVersion int
-
 func main() {
 	s.Init()
-	conf := s.GetConfig()
-	dcCache = redis.GetRedis(conf.RegistryCalls)
-	base.LoadConfig("proxy", &config)
-	if config.CheckInterval == 0 {
-		config.CheckInterval = 10
-	} else if config.CheckInterval < 3 {
-		config.CheckInterval = 3
+	sConfig := s.GetConfig()
+	dcCache = redis.GetRedis(sConfig.RegistryCalls)
+	config.LoadConfig("proxy", &gatewayConfig)
+	if gatewayConfig.CheckInterval == 0 {
+		gatewayConfig.CheckInterval = 10
+	} else if gatewayConfig.CheckInterval < 3 {
+		gatewayConfig.CheckInterval = 3
 	}
 
 	//configProxies := map[string]string{}
-	//for k, v := range config.Proxies {
+	//for k, v := range gatewayConfig.Proxies {
 	//	configProxies[k] = *v
 	//}
 	//updateCalls(configProxies)
@@ -50,7 +51,7 @@ func main() {
 	as := s.AsyncStart1()
 
 	configProxies := map[string]string{}
-	for k, v := range config.Proxies {
+	for k, v := range gatewayConfig.Proxies {
 		configProxies[k] = *v
 	}
 	updateCalls(configProxies)
@@ -123,13 +124,16 @@ func proxy(request *http.Request) (toApp, toPath *string, headers *map[string]st
 		}
 	}
 
+	(*headers)[standard.DiscoverHeaderFromApp] = "gateway"
+	(*headers)[standard.DiscoverHeaderFromNode] = s.GetServerAddr()
+
 	// 不进行代理
 	return
 }
 
 func syncCalls() {
 	for {
-		for i := 0; i < config.CheckInterval; i++ {
+		for i := 0; i < gatewayConfig.CheckInterval; i++ {
 			time.Sleep(time.Second * 1)
 			if !s.IsRunning() {
 				break
@@ -139,9 +143,7 @@ func syncCalls() {
 		//if pv > proxiesVersion {
 		//	proxiesVersion = pv
 		if updateCalls(dcCache.Do("HGETALL", "_proxies").StringMap()) {
-			s.Info("GW", s.Map{
-				"type": "restartDiscover",
-			})
+			log.Info("GW", "info", "restart discover")
 			//log.Printf("Proxy restart discover")
 			discover.Restart()
 			//s.RestartDiscoverSyncer()
@@ -164,16 +166,16 @@ func updateCalls(in map[string]string) bool {
 		if strings.Contains(v, "(") {
 			matcher, err := regexp.Compile("^" + v + "$")
 			if err != nil {
-				s.Warning("GW", s.Map{
-					"type":  "compileFailed",
-					"key":   k,
-					"value": v,
-					"error": err.Error(),
+				log.Warning("GW", s.Map{
+					"warning": "regexp compile failed",
+					"key":     k,
+					"value":   v,
+					"error":   err.Error(),
 				})
 				//log.Print("Proxy Error	Compile	", err)
 			} else {
-				s.Info("GW", s.Map{
-					"type":  base.StringIf(regexProxiesSet[k] != "", "updateRegexpProxySet", "newRegexpProxySet"),
+				log.Info("GW", s.Map{
+					"info":  u.StringIf(regexProxiesSet[k] != "", "update regexp proxy set", "new regexp proxy set"),
 					"key":   k,
 					"value": v,
 				})
@@ -181,8 +183,8 @@ func updateCalls(in map[string]string) bool {
 				regexProxiesSet[k] = v
 			}
 		} else {
-			s.Info("GW", s.Map{
-				"type":  base.StringIf(proxies[k] != "", "updateProxySet", "newProxySet"),
+			log.Info("GW", s.Map{
+				"info":  u.StringIf(proxies[k] != "", "update proxy set", "new proxy set"),
 				"key":   k,
 				"value": v,
 			})
