@@ -23,10 +23,20 @@ var gatewayConfig = struct {
 	Proxies       map[string]*string
 }{}
 
+var logger = log.New(u.ShortUniqueId())
+
+func logInfo(info string, extra ...interface{}) {
+	logger.Info("Gateway: "+info, extra...)
+}
+
+func logError(error string, extra ...interface{}) {
+	logger.Error("Gateway: "+error, extra...)
+}
+
 func main() {
+	discover.Init()
 	s.Init()
-	sConfig := s.GetConfig()
-	dcCache = redis.GetRedis(sConfig.RegistryCalls)
+	dcCache = redis.GetRedis(discover.Config.RegistryCalls, logger)
 	config.LoadConfig("proxy", &gatewayConfig)
 	if gatewayConfig.CheckInterval == 0 {
 		gatewayConfig.CheckInterval = 10
@@ -48,7 +58,7 @@ func main() {
 	//s.Start1()
 
 	s.SetProxyBy(proxy)
-	as := s.AsyncStart1()
+	as := s.AsyncStart()
 
 	configProxies := map[string]string{}
 	for k, v := range gatewayConfig.Proxies {
@@ -64,6 +74,11 @@ func main() {
 }
 
 func proxy(request *http.Request) (toApp, toPath *string, headers *map[string]string) {
+	outHeaders := map[string]string{
+		standard.DiscoverHeaderFromApp:  "gateway",
+		standard.DiscoverHeaderFromNode: s.GetServerAddr(),
+	}
+
 	// 匹配二级目录
 	paths := strings.SplitN(request.RequestURI, "/", 4)
 	if len(paths) == 4 {
@@ -73,13 +88,15 @@ func proxy(request *http.Request) (toApp, toPath *string, headers *map[string]st
 		// Host + Path 匹配
 		a := proxies[request.Host+p1]
 		if a != "" {
-			return &a, &p2, &map[string]string{"Proxy-Path": p1}
+			outHeaders["Proxy-Path"] = p1
+			return &a, &p2, &outHeaders
 		}
 
 		// Path 匹配
 		a = proxies[p1]
 		if a != "" {
-			return &a, &p2, &map[string]string{"Proxy-Path": p1}
+			outHeaders["Proxy-Path"] = p1
+			return &a, &p2, &outHeaders
 		}
 	}
 
@@ -92,20 +109,22 @@ func proxy(request *http.Request) (toApp, toPath *string, headers *map[string]st
 		// Host + Path 匹配
 		a := proxies[request.Host+p1]
 		if a != "" {
-			return &a, &p2, &map[string]string{"Proxy-Path": p1}
+			outHeaders["Proxy-Path"] = p1
+			return &a, &p2, &outHeaders
 		}
 
 		// Path 匹配
 		a = proxies[p1]
 		if a != "" {
-			return &a, &p2, &map[string]string{"Proxy-Path": p1}
+			outHeaders["Proxy-Path"] = p1
+			return &a, &p2, &outHeaders
 		}
 	}
 
 	// 匹配 Host
 	a := proxies[request.Host]
 	if a != "" {
-		return &a, &request.RequestURI, nil
+		return &a, &request.RequestURI, &outHeaders
 	}
 
 	// 模糊匹配
@@ -114,18 +133,14 @@ func proxy(request *http.Request) (toApp, toPath *string, headers *map[string]st
 		for _, m := range regexProxies {
 			finds := m.FindAllStringSubmatch(requestUrl, 20)
 			if len(finds) > 0 && len(finds[0]) > 2 {
-				var hh *map[string]string
 				pos := strings.Index(request.RequestURI, finds[0][2])
 				if pos > 0 {
-					hh = &map[string]string{"Proxy-Path": request.RequestURI[0:pos]}
+					outHeaders["Proxy-Path"] = request.RequestURI[0:pos]
 				}
-				return &finds[0][1], &finds[0][2], hh
+				return &finds[0][1], &finds[0][2], &outHeaders
 			}
 		}
 	}
-
-	(*headers)[standard.DiscoverHeaderFromApp] = "gateway"
-	(*headers)[standard.DiscoverHeaderFromNode] = s.GetServerAddr()
 
 	// 不进行代理
 	return
@@ -143,7 +158,7 @@ func syncCalls() {
 		//if pv > proxiesVersion {
 		//	proxiesVersion = pv
 		if updateCalls(dcCache.Do("HGETALL", "_proxies").StringMap()) {
-			log.Info("GW", "info", "restart discover")
+			logInfo("restart discover")
 			//log.Printf("Proxy restart discover")
 			discover.Restart()
 			//s.RestartDiscoverSyncer()
@@ -166,28 +181,15 @@ func updateCalls(in map[string]string) bool {
 		if strings.Contains(v, "(") {
 			matcher, err := regexp.Compile("^" + v + "$")
 			if err != nil {
-				log.Warning("GW", s.Map{
-					"warning": "regexp compile failed",
-					"key":     k,
-					"value":   v,
-					"error":   err.Error(),
-				})
+				logError("regexp compile failed", "key", k, "value", v)
 				//log.Print("Proxy Error	Compile	", err)
 			} else {
-				log.Info("GW", s.Map{
-					"info":  u.StringIf(regexProxiesSet[k] != "", "update regexp proxy set", "new regexp proxy set"),
-					"key":   k,
-					"value": v,
-				})
+				logInfo(u.StringIf(regexProxiesSet[k] != "", "update regexp proxy set", "new regexp proxy set"), "key", k, "value", v)
 				regexProxies = append(regexProxies, matcher)
 				regexProxiesSet[k] = v
 			}
 		} else {
-			log.Info("GW", s.Map{
-				"info":  u.StringIf(proxies[k] != "", "update proxy set", "new proxy set"),
-				"key":   k,
-				"value": v,
-			})
+			logInfo(u.StringIf(proxies[k] != "", "update proxy set", "new proxy set"), "key", k, "value", v)
 			proxies[k] = v
 			//if s.AddExternalApp(v, s.Call{}) {
 			if discover.AddExternalApp(v, discover.CallInfo{}) {
