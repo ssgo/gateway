@@ -6,7 +6,7 @@
 
 # 存储依赖
 
-应用会依赖 service.json 中 registryCalls 指定的 redis 配置访问注册信息，默认值为 "discover:15"
+应用会依赖 discover.json 中 registryCalls 指定的 redis 配置访问注册信息，默认值为 "127.0.0.1:6379:15"
 
 同时会访问该 redis db 中的 proxies 的内容，进行动态配置，如果修改 proxies 的内容需要进行 INCR proxiesVersion 操作提升版本
 
