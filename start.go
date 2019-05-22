@@ -36,7 +36,7 @@ func logError(error string, extra ...interface{}) {
 func main() {
 	discover.Init()
 	s.Init()
-	dcCache = redis.GetRedis(discover.Config.RegistryCalls, logger)
+	dcCache = redis.GetRedis(discover.Config.Registry, logger)
 	config.LoadConfig("proxy", &gatewayConfig)
 	if gatewayConfig.CheckInterval == 0 {
 		gatewayConfig.CheckInterval = 10
@@ -191,8 +191,9 @@ func updateCalls(in map[string]string) bool {
 		} else {
 			logInfo(u.StringIf(proxies[k] != "", "update proxy set", "new proxy set"), "key", k, "value", v)
 			proxies[k] = v
+			calls, ok := discover.Config.Calls[v]
 			//if s.AddExternalApp(v, s.Call{}) {
-			if discover.AddExternalApp(v, discover.CallInfo{}) {
+			if ok && discover.AddExternalApp(v, calls) {
 				updated = true
 			}
 		}
