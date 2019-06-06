@@ -64,7 +64,7 @@ func main() {
 	confForPubSub.ReadTimeout = -1
 	pubsubRedisPool = redis.NewRedis(&confForPubSub, logger)
 
-	config.LoadConfig("proxy", &gatewayConfig)
+	config.LoadConfig("gateway", &gatewayConfig)
 	if gatewayConfig.CheckInterval == 0 {
 		gatewayConfig.CheckInterval = 10
 	} else if gatewayConfig.CheckInterval < 3 {
