@@ -5,5 +5,8 @@
     "127.0.0.1/status": "status",
     "/hello": "welcome",
     "forDev": ".*?/(.*?)(/.*)"
+  },
+  "rewrites": {
+  	"http://(.*)": "https://$1"
   }
 }
