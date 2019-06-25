@@ -125,7 +125,7 @@ func rewrite(request *http.Request) (toPath string, rewrite bool) {
 	return "", false
 }
 
-func proxy(request *http.Request) (toApp, toPath *string, headers *map[string]string) {
+func proxy(request *http.Request) (toApp, toPath *string, headers map[string]string) {
 	outHeaders := map[string]string{
 		standard.DiscoverHeaderFromApp:  "gateway",
 		standard.DiscoverHeaderFromNode: s.GetServerAddr(),
@@ -141,14 +141,14 @@ func proxy(request *http.Request) (toApp, toPath *string, headers *map[string]st
 		a := _proxies[request.Host+p1]
 		if a != "" {
 			outHeaders["Proxy-Path"] = p1
-			return &a, &p2, &outHeaders
+			return &a, &p2, outHeaders
 		}
 
 		// Path 匹配
 		a = _proxies[p1]
 		if a != "" {
 			outHeaders["Proxy-Path"] = p1
-			return &a, &p2, &outHeaders
+			return &a, &p2, outHeaders
 		}
 	}
 
@@ -162,21 +162,21 @@ func proxy(request *http.Request) (toApp, toPath *string, headers *map[string]st
 		a := _proxies[request.Host+p1]
 		if a != "" {
 			outHeaders["Proxy-Path"] = p1
-			return &a, &p2, &outHeaders
+			return &a, &p2, outHeaders
 		}
 
 		// Path 匹配
 		a = _proxies[p1]
 		if a != "" {
 			outHeaders["Proxy-Path"] = p1
-			return &a, &p2, &outHeaders
+			return &a, &p2, outHeaders
 		}
 	}
 
 	// 匹配 Host
 	a := _proxies[request.Host]
 	if a != "" {
-		return &a, &request.RequestURI, &outHeaders
+		return &a, &request.RequestURI, outHeaders
 	}
 
 	// 模糊匹配
@@ -189,7 +189,7 @@ func proxy(request *http.Request) (toApp, toPath *string, headers *map[string]st
 				if pos > 0 {
 					outHeaders["Proxy-Path"] = request.RequestURI[0:pos]
 				}
-				return &finds[0][1], &finds[0][2], &outHeaders
+				return &finds[0][1], &finds[0][2], outHeaders
 			}
 		}
 	}
