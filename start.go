@@ -105,18 +105,24 @@ func rewrite(request *http.Request) (toPath string, rewrite bool) {
 	if len(_regexRewrites) > 0 {
 
 		requestUrl := fmt.Sprint(request.Header.Get("X-Scheme"), "://", request.Host, request.RequestURI)
+		requestUrlWithoutScheme := fmt.Sprint(request.Host, request.RequestURI)
 
 		for _, rr := range _regexRewrites {
 			finds := rr.Regex.FindAllStringSubmatch(requestUrl, 20)
-			if len(finds) > 0 {
-				to := rr.To
-				if len(finds[0]) > 1 {
-					for i := 1; i < len(finds[0]); i++ {
-						varName := fmt.Sprintf("$%d", i)
-						to = strings.ReplaceAll(to, varName, finds[0][i])
-					}
-					return to, true
+			if len(finds) == 0 {
+				finds = rr.Regex.FindAllStringSubmatch(requestUrlWithoutScheme, 20)
+			}
+			if len(finds) == 0 {
+				continue
+			}
+
+			to := rr.To
+			if len(finds[0]) > 1 {
+				for i := 1; i < len(finds[0]); i++ {
+					varName := fmt.Sprintf("$%d", i)
+					to = strings.ReplaceAll(to, varName, finds[0][i])
 				}
+				return to, true
 			}
 		}
 	}
@@ -314,9 +320,11 @@ func updateProxies(proxies *map[string]string, regexProxies *map[string]*regexPr
 		} else {
 			logInfo(u.StringIf(_proxies[k] != "", "update proxy set", "new proxy set"), "key", k, "value", v)
 			(*proxies)[k] = v
-			calls, ok := discover.Config.Calls[v]
-			if !ok && discover.AddExternalApp(v, calls) {
-				updated = true
+			if !strings.Contains(v, "http") {
+				calls, ok := discover.Config.Calls[v]
+				if !ok && discover.AddExternalApp(v, calls) {
+					updated = true
+				}
 			}
 		}
 	}
