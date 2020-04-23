@@ -1,5 +1,5 @@
 .*
-/env.json
+/env.*
 /dist
-/build
+/build*
 go.sum
