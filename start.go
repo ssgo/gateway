@@ -39,6 +39,7 @@ var gatewayConfig = struct {
 	Proxies       map[string]string
 	Rewrites      map[string]string
 	Prefix        string
+	CallTimeout   config.Duration
 }{}
 
 var logger = log.New(u.ShortUniqueId())
@@ -69,6 +70,10 @@ func main() {
 		gatewayConfig.CheckInterval = 10
 	} else if gatewayConfig.CheckInterval < 3 {
 		gatewayConfig.CheckInterval = 3
+	}
+
+	if gatewayConfig.CallTimeout == 0 {
+		gatewayConfig.CallTimeout = config.Duration(10 * time.Second)
 	}
 
 	if gatewayConfig.Prefix != "" {
@@ -147,14 +152,14 @@ func proxy(request *http.Request) (toApp, toPath *string, headers map[string]str
 		a := _proxies[request.Host+p1]
 		if a != "" {
 			outHeaders["Proxy-Path"] = p1
-			return &a, &p2, outHeaders
+			return fixAppName(a), &p2, outHeaders
 		}
 
 		// Path 匹配
 		a = _proxies[p1]
 		if a != "" {
 			outHeaders["Proxy-Path"] = p1
-			return &a, &p2, outHeaders
+			return fixAppName(a), &p2, outHeaders
 		}
 	}
 
@@ -168,21 +173,21 @@ func proxy(request *http.Request) (toApp, toPath *string, headers map[string]str
 		a := _proxies[request.Host+p1]
 		if a != "" {
 			outHeaders["Proxy-Path"] = p1
-			return &a, &p2, outHeaders
+			return fixAppName(a), &p2, outHeaders
 		}
 
 		// Path 匹配
 		a = _proxies[p1]
 		if a != "" {
 			outHeaders["Proxy-Path"] = p1
-			return &a, &p2, outHeaders
+			return fixAppName(a), &p2, outHeaders
 		}
 	}
 
 	// 匹配 Host
 	a := _proxies[request.Host]
 	if a != "" {
-		return &a, &request.RequestURI, outHeaders
+		return fixAppName(a), &request.RequestURI, outHeaders
 	}
 
 	// 模糊匹配
@@ -195,6 +200,21 @@ func proxy(request *http.Request) (toApp, toPath *string, headers map[string]str
 				if pos > 0 {
 					outHeaders["Proxy-Path"] = request.RequestURI[0:pos]
 				}
+
+				if !strings.Contains(finds[0][1], "://") && strings.ContainsRune(finds[0][1], ':') {
+					callConfig := ""
+					if strings.ContainsRune(finds[0][1], ':') {
+						// support call config in proxy value
+						a := strings.SplitN(finds[0][1], ":", 2)
+						finds[0][1] = a[0]
+						callConfig = a[1]
+					} else {
+						callConfig = u.String(gatewayConfig.CallTimeout.TimeDuration())
+					}
+					if discover.AddExternalApp(finds[0][1], callConfig) {
+						discover.Restart()
+					}
+				}
 				return &finds[0][1], &finds[0][2], outHeaders
 			}
 		}
@@ -202,6 +222,15 @@ func proxy(request *http.Request) (toApp, toPath *string, headers map[string]str
 
 	// 不进行代理
 	return
+}
+
+func fixAppName(appName string) *string {
+	if !strings.Contains(appName, "://") && strings.ContainsRune(appName, ':') {
+		a := strings.SplitN(appName, ":", 2)
+		return &a[0]
+	} else {
+		return &appName
+	}
 }
 
 func syncProxies() {
@@ -320,10 +349,20 @@ func updateProxies(proxies *map[string]string, regexProxies *map[string]*regexPr
 		} else {
 			logInfo(u.StringIf(_proxies[k] != "", "update proxy set", "new proxy set"), "key", k, "value", v)
 			(*proxies)[k] = v
-			if !strings.Contains(v, "http") {
-				calls, ok := discover.Config.Calls[v]
-				if !ok && discover.AddExternalApp(v, calls) {
-					updated = true
+			if !strings.Contains(v, "://") {
+				if discover.Config.Calls[v] == "" {
+					callConfig := ""
+					if strings.ContainsRune(v, ':') {
+						// support call config in proxy value
+						a := strings.SplitN(v, ":", 2)
+						v = a[0]
+						callConfig = a[1]
+					} else {
+						callConfig = u.String(gatewayConfig.CallTimeout.TimeDuration())
+					}
+					if discover.AddExternalApp(v, callConfig) {
+						updated = true
+					}
 				}
 			}
 		}
