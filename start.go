@@ -142,53 +142,111 @@ func proxy(request *http.Request) (toApp, toPath *string, headers map[string]str
 		standard.DiscoverHeaderFromNode: s.GetServerAddr(),
 	}
 
-	// 匹配二级目录
-	paths := strings.SplitN(request.RequestURI, "/", 4)
-	if len(paths) == 4 {
-		p1 := "/" + paths[1] + "/" + paths[2]
-		p2 := "/" + paths[3]
+	scheme := u.StringIf(request.TLS == nil, "http", "https")
+	host1 := ""
+	host2 := ""
+	if strings.ContainsRune(request.Host, ':') {
+		hostArr := strings.SplitN(request.Host, ":", 2)
+		host1 = hostArr[0]
+		host2 = request.Host
+	} else {
+		host1 = request.Host
+		host2 = request.Host + ":" + u.StringIf(request.TLS == nil, "80", "443")
+	}
 
-		// Host + Path 匹配
-		a := _proxies[request.Host+p1]
-		if a != "" {
-			outHeaders["Proxy-Path"] = p1
-			return fixAppName(a), &p2, outHeaders
+	pathMatchers := make([]string, 0)
+	pathMatchers = append(pathMatchers, fmt.Sprint(scheme, "://", host1, request.RequestURI))
+	pathMatchers = append(pathMatchers, fmt.Sprint(scheme, "://", host2, request.RequestURI))
+	pathMatchers = append(pathMatchers, fmt.Sprint(host1, request.RequestURI))
+	pathMatchers = append(pathMatchers, fmt.Sprint(host2, request.RequestURI))
+	pathMatchers = append(pathMatchers, request.RequestURI)
+
+	hostMatchers := make([]string, 0)
+	hostMatchers = append(hostMatchers, fmt.Sprint(scheme, "://", host1))
+	hostMatchers = append(hostMatchers, fmt.Sprint(scheme, "://", host2))
+	hostMatchers = append(hostMatchers, host1)
+	hostMatchers = append(hostMatchers, host2)
+
+	for p, a := range _proxies {
+		matchPath := ""
+		matchPathArr := strings.SplitN(strings.ReplaceAll(p, "://", ""), "/", 2)
+		if len(matchPathArr) == 2 {
+			matchPath = "/" + matchPathArr[1]
 		}
 
-		// Path 匹配
-		a = _proxies[p1]
-		if a != "" {
-			outHeaders["Proxy-Path"] = p1
-			return fixAppName(a), &p2, outHeaders
+		if matchPath == "" {
+			for _, m := range hostMatchers {
+				if m == p {
+					//fmt.Println(" >>>>>>>>1", p, m, request.RequestURI)
+					return fixAppName(a), &request.RequestURI, outHeaders
+				}
+			}
+		} else {
+			for _, m := range pathMatchers {
+				if strings.HasPrefix(m, p) {
+					if strings.HasPrefix(request.RequestURI, matchPath) {
+						p2 := request.RequestURI[len(matchPath):]
+						if len(p2) == 0 || p2[0] != '/' {
+							p2 = "/" + p2
+						}
+						//fmt.Println(" >>>>>>>>2", p, m, p2)
+						return fixAppName(a), &p2, outHeaders
+					} else {
+						//fmt.Println(" >>>>>>>>3", p, m, request.RequestURI)
+						return fixAppName(a), &request.RequestURI, outHeaders
+					}
+				}
+			}
 		}
 	}
 
-	// 匹配一级目录
-	paths = strings.SplitN(request.RequestURI, "/", 3)
-	if len(paths) == 3 {
-		p1 := "/" + paths[1]
-		p2 := "/" + paths[2]
+	//// 匹配二级目录
+	//paths := strings.SplitN(request.RequestURI, "/", 4)
+	//if len(paths) == 4 {
+	//	p1 := "/" + paths[1] + "/" + paths[2]
+	//	p2 := "/" + paths[3]
+	//
+	//	// Host + Path 匹配
+	//	a := _proxies[request.Host+p1]
+	//	if a != "" {
+	//		outHeaders["Proxy-Path"] = p1
+	//		return fixAppName(a), &p2, outHeaders
+	//	}
+	//
+	//	// Path 匹配
+	//	a = _proxies[p1]
+	//	if a != "" {
+	//		outHeaders["Proxy-Path"] = p1
+	//		return fixAppName(a), &p2, outHeaders
+	//	}
+	//}
+	//
+	//// 匹配一级目录
+	//paths = strings.SplitN(request.RequestURI, "/", 3)
+	//if len(paths) == 3 {
+	//	p1 := "/" + paths[1]
+	//	p2 := "/" + paths[2]
+	//
+	//	// Host + Path 匹配
+	//	a := _proxies[request.Host+p1]
+	//	if a != "" {
+	//		outHeaders["Proxy-Path"] = p1
+	//		return fixAppName(a), &p2, outHeaders
+	//	}
+	//
+	//	// Path 匹配
+	//	a = _proxies[p1]
+	//	if a != "" {
+	//		outHeaders["Proxy-Path"] = p1
+	//		return fixAppName(a), &p2, outHeaders
+	//	}
+	//}
 
-		// Host + Path 匹配
-		a := _proxies[request.Host+p1]
-		if a != "" {
-			outHeaders["Proxy-Path"] = p1
-			return fixAppName(a), &p2, outHeaders
-		}
-
-		// Path 匹配
-		a = _proxies[p1]
-		if a != "" {
-			outHeaders["Proxy-Path"] = p1
-			return fixAppName(a), &p2, outHeaders
-		}
-	}
-
-	// 匹配 Host
-	a := _proxies[request.Host]
-	if a != "" {
-		return fixAppName(a), &request.RequestURI, outHeaders
-	}
+	//// 匹配 Host
+	//a := _proxies[request.Host]
+	//if a != "" {
+	//	return fixAppName(a), &request.RequestURI, outHeaders
+	//}
 
 	// 模糊匹配
 	if len(_regexProxies) > 0 {
