@@ -136,7 +136,7 @@ func rewrite(request *http.Request) (toPath string, rewrite bool) {
 	return "", false
 }
 
-func proxy(request *http.Request) (toApp, toPath *string, headers map[string]string) {
+func proxy(request *http.Request) (authLevel int, toApp, toPath *string, headers map[string]string) {
 	outHeaders := map[string]string{
 		standard.DiscoverHeaderFromApp:  "gateway",
 		standard.DiscoverHeaderFromNode: s.GetServerAddr(),
@@ -178,7 +178,7 @@ func proxy(request *http.Request) (toApp, toPath *string, headers map[string]str
 			for _, m := range hostMatchers {
 				if m == p {
 					//fmt.Println(" >>>>>>>>1", p, m, request.RequestURI)
-					return fixAppName(a), &request.RequestURI, outHeaders
+					return 0, fixAppName(a), &request.RequestURI, outHeaders
 				}
 			}
 		} else {
@@ -190,10 +190,10 @@ func proxy(request *http.Request) (toApp, toPath *string, headers map[string]str
 							p2 = "/" + p2
 						}
 						//fmt.Println(" >>>>>>>>2", p, m, p2)
-						return fixAppName(a), &p2, outHeaders
+						return 0, fixAppName(a), &p2, outHeaders
 					} else {
 						//fmt.Println(" >>>>>>>>3", p, m, request.RequestURI)
-						return fixAppName(a), &request.RequestURI, outHeaders
+						return 0, fixAppName(a), &request.RequestURI, outHeaders
 					}
 				}
 			}
@@ -273,7 +273,7 @@ func proxy(request *http.Request) (toApp, toPath *string, headers map[string]str
 						discover.Restart()
 					}
 				}
-				return &finds[0][1], &finds[0][2], outHeaders
+				return 0, &finds[0][1], &finds[0][2], outHeaders
 			}
 		}
 	}
