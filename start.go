@@ -19,7 +19,8 @@ import (
 
 var redisPool *redis.Redis
 var pubsubRedisPool *redis.Redis
-var updateLock = sync.Mutex{}
+
+//var updateLock = sync.Mutex{}
 
 type regexProxiesInfo struct {
 	Value string
@@ -32,6 +33,8 @@ type regexRewriteInfo struct {
 }
 
 var _proxies = map[string]string{}
+var _proxiesLock = sync.RWMutex{}
+var _rewritesLock = sync.RWMutex{}
 var _regexProxies = map[string]*regexProxiesInfo{}
 var _regexRewrites = map[string]*regexRewriteInfo{}
 var gatewayConfig = struct {
@@ -119,13 +122,12 @@ func main() {
 		}
 	}
 
+	as := s.AsyncStart()
+	syncProxies()
+	syncRewrites()
+
 	if redisPool != nil {
-		as := s.AsyncStart()
-
-		syncProxies()
-		syncRewrites()
 		go subscribe()
-
 		for {
 			for i := 0; i < gatewayConfig.CheckInterval; i++ {
 				time.Sleep(time.Second * 1)
@@ -141,17 +143,20 @@ func main() {
 		}
 		as.Stop()
 	} else {
-		s.Start()
+		as.Wait()
 	}
 }
 
 func rewrite(request *s.Request) (toPath string, rewrite bool) {
-	if len(_regexRewrites) > 0 {
+	_rewritesLock.RLock()
+	list := _regexRewrites
+	_rewritesLock.RUnlock()
+	if len(list) > 0 {
 
 		requestUrl := fmt.Sprint(request.Header.Get("X-Scheme"), "://", request.Host, request.RequestURI)
 		requestUrlWithoutScheme := fmt.Sprint(request.Host, request.RequestURI)
 
-		for _, rr := range _regexRewrites {
+		for _, rr := range list {
 			finds := rr.Regex.FindAllStringSubmatch(requestUrl, 20)
 			if len(finds) == 0 {
 				finds = rr.Regex.FindAllStringSubmatch(requestUrlWithoutScheme, 20)
@@ -176,6 +181,7 @@ func rewrite(request *s.Request) (toPath string, rewrite bool) {
 }
 
 func proxy(request *s.Request) (authLevel int, toApp, toPath *string, headers map[string]string) {
+	//fmt.Println("proxy", len(_proxies))
 	outHeaders := map[string]string{
 		standard.DiscoverHeaderFromApp:  "gateway",
 		standard.DiscoverHeaderFromNode: s.GetServerAddr(),
@@ -206,7 +212,11 @@ func proxy(request *s.Request) (authLevel int, toApp, toPath *string, headers ma
 	hostMatchers = append(hostMatchers, host1)
 	hostMatchers = append(hostMatchers, host2)
 
-	for p, a := range _proxies {
+	_proxiesLock.RLock()
+	list := _proxies
+	_proxiesLock.RUnlock()
+	for p, a := range list {
+		//fmt.Println("check proxy ", p, a)
 		matchPath := ""
 		matchPathArr := strings.SplitN(strings.ReplaceAll(p, "://", ""), "/", 2)
 		if len(matchPathArr) == 2 {
@@ -288,11 +298,17 @@ func proxy(request *s.Request) (authLevel int, toApp, toPath *string, headers ma
 	//}
 
 	// 模糊匹配
-	if len(_regexProxies) > 0 {
+	_proxiesLock.RLock()
+	list2 := _regexProxies
+	_proxiesLock.RUnlock()
+
+	if len(list2) > 0 {
 		requestUrl := request.Host + request.RequestURI
-		for _, rp := range _regexProxies {
+		for _, rp := range list2 {
+			//fmt.Println("check regexp proxy ", rp.Regex, rp.Value)
 			finds := rp.Regex.FindAllStringSubmatch(requestUrl, 20)
 			if len(finds) > 0 && len(finds[0]) > 2 {
+				//fmt.Println(" >>>>>>>>2", request.RequestURI, finds[0][2])
 				pos := strings.Index(request.RequestURI, finds[0][2])
 				if pos > 0 {
 					outHeaders["Proxy-Path"] = request.RequestURI[0:pos]
@@ -308,8 +324,10 @@ func proxy(request *s.Request) (authLevel int, toApp, toPath *string, headers ma
 					} else {
 						callConfig = u.String(gatewayConfig.CallTimeout.TimeDuration())
 					}
-					if discover.AddExternalApp(finds[0][1], callConfig) {
-						discover.Restart()
+					if redisPool != nil {
+						if discover.AddExternalApp(finds[0][1], callConfig) {
+							discover.Restart()
+						}
 					}
 				}
 				return 0, &finds[0][1], &finds[0][2], outHeaders
@@ -333,28 +351,50 @@ func fixAppName(appName string) *string {
 func syncProxies() {
 	proxies := map[string]string{}
 	regexProxies := map[string]*regexProxiesInfo{}
+	////fmt.Println("####000", u.JsonP(gatewayConfig.Proxies), 111)
 	updated1 := updateProxies(&proxies, &regexProxies, gatewayConfig.Proxies)
+	//fmt.Println("####>>>", u.JsonP(proxies), 111)
 
-	updateLock.Lock()
-	updated2 := updateProxies(&proxies, &regexProxies, redisPool.Do("HGETALL", proxiesKey).StringMap())
-	if updated1 || updated2 {
-		logInfo("restart discover subscriber")
-		discover.Restart()
+	updated2 := false
+	if redisPool != nil {
+		//updateLock.Lock()
+		updated2 = updateProxies(&proxies, &regexProxies, redisPool.Do("HGETALL", proxiesKey).StringMap())
+		//if updated1 || updated2 {
+		//logInfo("restart discover subscriber")
+		////fmt.Println("####>>>****1")
+		//discover.Restart()
+		////fmt.Println("####>>>****2")
+		//}
+		//updateLock.Unlock()
 	}
-	updateLock.Unlock()
-	_proxies = proxies
-	_regexProxies = regexProxies
+	//fmt.Println("####>>>", u.JsonP(proxies), 222)
+
+	if updated1 || updated2 {
+		_proxiesLock.Lock()
+		_proxies = proxies
+		_regexProxies = regexProxies
+		_proxiesLock.Unlock()
+		logInfo("proxies updated", "count", len(proxies), "regexpCount", len(regexProxies))
+	}
 }
 
 func syncRewrites() {
 	regexRewrites := map[string]*regexRewriteInfo{}
-	updateRewrites(&regexRewrites, gatewayConfig.Rewrites)
+	updated1 := updateRewrites(&regexRewrites, gatewayConfig.Rewrites)
+	updated2 := false
 
-	updateLock.Lock()
-	updateRewrites(&regexRewrites, redisPool.Do("HGETALL", rewritesKey).StringMap())
-	updateLock.Unlock()
+	if redisPool != nil {
+		//updateLock.Lock()
+		updated2 = updateRewrites(&regexRewrites, redisPool.Do("HGETALL", rewritesKey).StringMap())
+		//updateLock.Unlock()
+	}
 
-	_regexRewrites = regexRewrites
+	if updated1 || updated2 {
+		_rewritesLock.Lock()
+		_regexRewrites = regexRewrites
+		_rewritesLock.Unlock()
+		logInfo("rewrites updated", "count", len(regexRewrites))
+	}
 }
 
 func subscribe() {
@@ -418,34 +458,46 @@ func subscribe() {
 }
 
 func updateProxies(proxies *map[string]string, regexProxies *map[string]*regexProxiesInfo, in map[string]string) bool {
-	//logInfo("update", "data", in)
 	updated := false
+	//fmt.Println("####000")
+	_proxiesLock.RLock()
+	list := _proxies
+	list2 := _regexProxies
+	_proxiesLock.RUnlock()
+
 	for k, v := range in {
-		if v == _proxies[k] {
+		//fmt.Println("####111", k, v)
+		v2 := list[k]
+		v3 := list2[k]
+		if v == v2 {
 			(*proxies)[k] = v
+			//fmt.Println("####222", k, v)
 			continue
 		}
-
-		if _regexProxies[k] != nil && v == _regexProxies[k].Value {
-			(*regexProxies)[k] = _regexProxies[k]
+		////fmt.Println("####333", k, v)
+		if v3 != nil && v == v3.Value {
+			(*regexProxies)[k] = v3
 			continue
 		}
-
+		////fmt.Println("####444", k, v)
 		if strings.Contains(v, "(") {
+			////fmt.Println("####555", k, v)
 			matcher, err := regexp.Compile("^" + v + "$")
 			if err != nil {
 				logError("proxy regexp compile failed", "key", k, "value", v)
 				//log.Print("Proxy Error	Compile	", err)
 			} else {
-				logInfo(u.StringIf(_regexProxies[k] != nil, "update regexp proxy set", "new regexp proxy set"), "key", k, "value", v)
+				logInfo(u.StringIf(v3 != nil, "update regexp proxy set", "new regexp proxy set"), "key", k, "value", v)
 				(*regexProxies)[k] = &regexProxiesInfo{
 					Value: v,
 					Regex: *matcher,
 				}
 			}
 		} else {
-			logInfo(u.StringIf(_proxies[k] != "", "update proxy set", "new proxy set"), "key", k, "value", v)
+			////fmt.Println("####666", k, v)
+			logInfo(u.StringIf(v2 != "", "update proxy set", "new proxy set"), "key", k, "value", v)
 			(*proxies)[k] = v
+			////fmt.Println("########2", len((*proxies)))
 			if !strings.Contains(v, "://") {
 				if discover.Config.Calls[v] == "" {
 					callConfig := ""
@@ -457,21 +509,29 @@ func updateProxies(proxies *map[string]string, regexProxies *map[string]*regexPr
 					} else {
 						callConfig = u.String(gatewayConfig.CallTimeout.TimeDuration())
 					}
-					if discover.AddExternalApp(v, callConfig) {
-						updated = true
+					if redisPool != nil {
+						if discover.AddExternalApp(v, callConfig) {
+							updated = true
+						}
 					}
 				}
 			}
 		}
 	}
+	//fmt.Println("####999")
 	return updated
 }
 
-func updateRewrites(regexRewrites *map[string]*regexRewriteInfo, in map[string]string) {
-	for k, v := range in {
+func updateRewrites(regexRewrites *map[string]*regexRewriteInfo, in map[string]string) bool {
+	_proxiesLock.RLock()
+	list := _regexRewrites
+	_proxiesLock.RUnlock()
 
-		if _regexRewrites[k] != nil && v == _regexRewrites[k].To {
-			(*regexRewrites)[k] = _regexRewrites[k]
+	updated := false
+	for k, v := range in {
+		v3 := list[k]
+		if v3 != nil && v == v3.To {
+			(*regexRewrites)[k] = v3
 			continue
 		}
 
@@ -479,11 +539,13 @@ func updateRewrites(regexRewrites *map[string]*regexRewriteInfo, in map[string]s
 		if err != nil {
 			logError("rewrite regexp compile failed", "key", k, "value", v)
 		} else {
-			logInfo(u.StringIf(_regexRewrites[k] != nil, "update regexp rewrite set", "new regexp rewrite set"), "key", k, "value", v)
+			logInfo(u.StringIf(v3 != nil, "update regexp rewrite set", "new regexp rewrite set"), "key", k, "value", v)
 			(*regexRewrites)[k] = &regexRewriteInfo{
 				To:    v,
 				Regex: *matcher,
 			}
+			updated = true
 		}
 	}
+	return updated
 }

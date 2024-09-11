@@ -1,37 +1,131 @@
-# 基于 ssgo/s 的一个网关应用
+# 基于 github/ssgo 的一个网关应用（类似nginx）
 
-为了更好的支撑所有后端应用服务化，该网关可以接管所有流量，根据注册信息向后端节点转发
+### 安装
 
-可以直接使用，也可以参照该项目定制一个需要的网关，后面所有节点都建议使用 h2c 协议，特殊情况可以在 service_calls 中指定 httpVersion 为 1
-
-# 存储依赖
-
-应用会依赖 discover.json 中 registryCalls 指定的 redis 配置访问注册信息，默认值为 "127.0.0.1:6379:15"
-
-同时会访问该 redis db 中的 proxies 的内容，进行动态配置，如果修改 proxies 的内容需要进行 INCR proxiesVersion 操作提升版本
-
-## 配置
-
-可在项目根目录放置一个 gateway.json
-
-```json
-{
-  "checkInterval": 5,
-  "proxies": {
-    "localhost:8080": "mainapp",
-    "127.0.0.1/status": "status",
-    "/hello": "welcome",
-    "forDev": ".*?/(.*?)(/.*)"
-  }
-}
+```shell
+go install github.com/ssgo/gateway@latest
 ```
 
-checkInterval 同步 redis db 中 proxies 动态配置的间隔时间，单位 秒
+或直接下载对应操作系统的二进制程序：
 
-proxies 中 支持
- - Host => App
- - Path => App
- - Host&Path => App
- - Host&Path 进行正则匹配后 $1 是 App $2 是 requestPath，key 没有实际意义
+Mac:
 
-配置内容也可以同时使用 env.json 或环境变量设置（优先级高于配置文件）
+https://apigo.cloud/gateway/gateway.darwin.amd64
+
+https://apigo.cloud/gateway/gateway.darwin.arm64
+
+
+Linux:
+
+https://apigo.cloud/gateway/gateway.linux.amd64
+
+https://apigo.cloud/gateway/gateway.linux.arm64
+
+
+Windows:
+
+https://apigo.cloud/gateway/gateway.windows.amd64.exe
+
+https://apigo.cloud/gateway/gateway.windows.arm64.exe
+
+
+### 监听（使用 https://github/ssgo/s 的配置）
+
+以下是一个示例（配置文件env.yml）：
+
+```yaml
+service:
+  listen: 80|443
+  rewriteTimeout: 60000
+  ssl:
+    xxx.com:
+      certfile: xxx.pem
+      keyfile: xxx.key
+```
+
+
+### 日志（使用 https://github/ssgo/log 的配置）
+
+以下是一个示例（配置文件env.yml）：
+
+```yaml
+log:
+  file: out.log
+  splittag: 20060102
+```
+
+
+### 静态文件配置
+
+以下是一个示例（配置文件env.yml）：
+
+```yaml
+gateway:
+  www:
+    "*":
+      /: www
+    xxx.com:
+      /: www/xxx
+```
+
+
+### 反向代理配置
+
+以下是一个示例（配置文件env.yml）：
+
+```yaml
+gateway:
+  proxies:
+    xxx.com: http://127.0.0.1:3000
+    xxx.com/(.*): https://$1
+    xxx.com/xxx: discoverAppName
+    xxx2.com/xxx/(.*): http://127.0.0.1:8001/xxx/$1
+    xxx3.com:8080: discoverAppName
+```
+
+支持的反向代理格式：
+
+Host: URL or DiscoverApp
+
+Host:Port: URL or DiscoverApp
+
+Path: URL or DiscoverApp
+
+Host/Path: URL or DiscoverApp
+
+Host:Port/Path: URL or DiscoverApp
+
+可以key中使用()进行正则匹配分组，然后在value中使用$1、$2...进行替换
+
+
+### 重定向（rewrite）配置
+
+以下是一个示例（配置文件env.yml）：
+
+```yaml
+gateway:
+  rewrites:
+    xxx.com/xxx/(.*): /xxx2/$1
+    xxx.com/(.*): https://xxx2.com/$1
+```
+
+
+### 服务发现（使用 https://github/ssgo/discover 的配置）
+
+如果有需要反向代理的服务（不确定IP、节点数量），可以使用 ssgo/discover 进行注册，支持在 proxies 中以服务名称进行配置
+
+必须依赖一个可用的redis
+
+以下是一个示例（配置文件env.yml）：
+
+```yaml
+discover:
+  registry: redis://:xxxx@localhost:6379/15
+```
+
+
+### 动态配置（基于discover的redis）
+
+在 redis 中配置Hash Key “_proxies”、“_rewrites”，默认会在10秒（可配置）内自动更新
+
+如果希望立刻更新，可以同时向频道 “_CH_proxies”、“_CH_rewrites” 推送任意数据 

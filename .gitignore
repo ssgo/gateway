@@ -1,6 +1,6 @@
 .*
 /env.*
-/dist
-/build*
 /www
 go.sum
+/dist
+/build
