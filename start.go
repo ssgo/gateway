@@ -10,7 +10,7 @@ import (
 	"github.com/ssgo/s"
 	"github.com/ssgo/standard"
 	"github.com/ssgo/u"
-	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -40,6 +40,7 @@ var gatewayConfig = struct {
 	Rewrites      map[string]string
 	Prefix        string
 	CallTimeout   config.Duration
+	Www           map[string]*map[string]*string
 }{}
 
 var logger = log.New(u.ShortUniqueId())
@@ -57,15 +58,37 @@ func logError(error string, extra ...interface{}) {
 }
 
 func main() {
+	errs := config.LoadConfig("gateway", &gatewayConfig)
+	if errs != nil && len(errs) > 0 {
+		for _, err := range errs {
+			fmt.Println(u.BRed(err.Error()))
+		}
+		return
+	}
+
+	if len(os.Args) > 1 && (os.Args[1] == "test" || os.Args[1] == "-t") {
+		fmt.Println(u.Green(u.FixedJsonP(gatewayConfig)))
+		fmt.Println(u.BGreen("the configuration was successful"))
+		return
+	}
+
 	discover.Init()
 	s.Init()
 	redisPool = redis.GetRedis(discover.Config.Registry, logger)
-	confForPubSub := *redisPool.Config
-	confForPubSub.IdleTimeout = -1
-	confForPubSub.ReadTimeout = -1
-	pubsubRedisPool = redis.NewRedis(&confForPubSub, logger)
+	if conn := redisPool.GetConnection(); conn == nil || conn.Err() != nil {
+		logger.Warning("redis connection failed, start local mode")
+		redisPool = nil
+	} else {
+		_ = conn.Close()
+	}
 
-	config.LoadConfig("gateway", &gatewayConfig)
+	if redisPool != nil {
+		confForPubSub := *redisPool.Config
+		confForPubSub.IdleTimeout = -1
+		confForPubSub.ReadTimeout = -1
+		pubsubRedisPool = redis.NewRedis(&confForPubSub, logger)
+	}
+
 	if gatewayConfig.CheckInterval == 0 {
 		gatewayConfig.CheckInterval = 10
 	} else if gatewayConfig.CheckInterval < 3 {
@@ -84,29 +107,45 @@ func main() {
 	}
 	s.SetRewriteBy(rewrite)
 	s.SetProxyBy(proxy)
-	as := s.AsyncStart()
 
-	syncProxies()
-	syncRewrites()
-	go subscribe()
+	for host, wwwSet := range gatewayConfig.Www {
+		if host == "*" {
+			host = ""
+		}
+		vh := s.Host(host)
+		for webPath, localPath := range *wwwSet {
+			logger.Info("www site:", "host", host, "webPath", webPath, "localPath", localPath)
+			vh.Static(webPath, *localPath)
+		}
+	}
 
-	for {
-		for i := 0; i < gatewayConfig.CheckInterval; i++ {
-			time.Sleep(time.Second * 1)
+	if redisPool != nil {
+		as := s.AsyncStart()
+
+		syncProxies()
+		syncRewrites()
+		go subscribe()
+
+		for {
+			for i := 0; i < gatewayConfig.CheckInterval; i++ {
+				time.Sleep(time.Second * 1)
+				if !s.IsRunning() {
+					break
+				}
+			}
+			syncProxies()
+			syncRewrites()
 			if !s.IsRunning() {
 				break
 			}
 		}
-		syncProxies()
-		syncRewrites()
-		if !s.IsRunning() {
-			break
-		}
+		as.Stop()
+	} else {
+		s.Start()
 	}
-	as.Stop()
 }
 
-func rewrite(request *http.Request) (toPath string, rewrite bool) {
+func rewrite(request *s.Request) (toPath string, rewrite bool) {
 	if len(_regexRewrites) > 0 {
 
 		requestUrl := fmt.Sprint(request.Header.Get("X-Scheme"), "://", request.Host, request.RequestURI)
@@ -136,7 +175,7 @@ func rewrite(request *http.Request) (toPath string, rewrite bool) {
 	return "", false
 }
 
-func proxy(request *http.Request) (authLevel int, toApp, toPath *string, headers map[string]string) {
+func proxy(request *s.Request) (authLevel int, toApp, toPath *string, headers map[string]string) {
 	outHeaders := map[string]string{
 		standard.DiscoverHeaderFromApp:  "gateway",
 		standard.DiscoverHeaderFromNode: s.GetServerAddr(),

@@ -3,13 +3,12 @@ module github.com/ssgo/gateway
 go 1.12
 
 require (
-	github.com/gomodule/redigo v2.0.0+incompatible
-	github.com/ssgo/config v0.5.18
-	github.com/ssgo/discover v0.5.18
-	github.com/ssgo/log v0.5.18
-	github.com/ssgo/redis v0.5.18
-	github.com/ssgo/s v1.5.13
-	github.com/ssgo/standard v0.5.18
-	github.com/ssgo/u v0.5.18
+	github.com/gomodule/redigo v1.8.8
+	github.com/ssgo/config v1.7.7
+	github.com/ssgo/discover v1.7.7
+	github.com/ssgo/log v1.7.7
+	github.com/ssgo/redis v1.7.7
+	github.com/ssgo/s v1.7.8
+	github.com/ssgo/standard v1.7.7
+	github.com/ssgo/u v1.7.7
 )
-
