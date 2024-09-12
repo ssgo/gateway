@@ -11,32 +11,32 @@ go install github.com/ssgo/gateway@latest
 #### Linux (amd64):
 
 ```shell
-curl -o gateway https://apigo.cloud/gateway/gateway.linux.amd64 && chmod +x gateway
+curl -o gateway https://apigo.cc/gateway/gateway.linux.amd64 && chmod +x gateway
 ```
 
 #### Linux (arm64):
 
 ```shell
-curl -o gateway https://apigo.cloud/gateway/gateway.linux.amd64
+curl -o gateway https://apigo.cc/gateway/gateway.linux.amd64 && chmod +x gateway
 ```
 
 #### Mac (Intel):
 
 ```shell
-curl -o gateway https://apigo.cloud/gateway/gateway.darwin.amd64
+curl -o gateway https://apigo.cc/gateway/gateway.darwin.amd64 && chmod +x gateway
 ```
 
 #### Mac (Apple):
 
 ```shell
-curl -o gateway https://apigo.cloud/gateway/gateway.darwin.arm64
+curl -o gateway https://apigo.cc/gateway/gateway.darwin.arm64 && chmod +x gateway
 ```
 
 Windows:
 
-https://apigo.cloud/gateway/gateway.windows.amd64.exe
+https://apigo.cc/gateway/gateway.windows.amd64.exe
 
-https://apigo.cloud/gateway/gateway.windows.arm64.exe
+https://apigo.cc/gateway/gateway.windows.arm64.exe
 
 
 ## 配置 (在当前目录下创建env.yml)
@@ -97,6 +97,20 @@ gateway:
 ./gateway restart
 ```
 
+## 重新加载配置
+
+```shell
+./gateway -r
+```
+
+```shell
+./gateway reload
+```
+
+```shell
+kill -30 [pid]
+```
+
 ## 监听（使用 https://github/ssgo/s 的配置）
 
 以下是一个示例（配置文件env.yml）：
@@ -119,6 +133,18 @@ service:
 log:
   file: out.log
   splittag: 20060102
+```
+
+### 安装日志查看工具（参考 https://github.com/ssgo/tool ）
+
+```shell
+go install github.com/ssgo/tool/logv@latest
+```
+
+或直接下载对应操作系统的二进制程序：（以Linux为例，更多下载地址可访问 https://github.com/ssgo/tool ）
+
+```shell
+curl -o logv https://apigo.cc/tool/logv.linux.amd64 && chmod +x logv
 ```
 
 

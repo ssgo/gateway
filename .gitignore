@@ -1,4 +1,5 @@
 .*
+!.gitignore
 /env.yml
 /www
 go.sum

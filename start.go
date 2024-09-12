@@ -11,9 +11,12 @@ import (
 	"github.com/ssgo/standard"
 	"github.com/ssgo/u"
 	"os"
+	"os/signal"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -83,11 +86,73 @@ func AsyncStart() *s.AsyncServer {
 		return nil
 	}
 
-	if len(os.Args) > 1 && (os.Args[1] == "test" || os.Args[1] == "-t") {
-		fmt.Println(u.Green(u.FixedJsonP(gatewayConfig)))
-		fmt.Println(u.BGreen("the configuration was successful"))
-		return nil
+	if len(os.Args) > 1 {
+		if os.Args[1] == "help" || os.Args[1] == "-h" || os.Args[1] == "--help" {
+			fmt.Println(`gateway
+
+start		start server
+stop		stop server
+restart		restart server
+reload | -r	reload config
+test | -t	test config
+help | -h	show this help
+
+no arg will run in foreground
+`)
+			return nil
+		}
+
+		if os.Args[1] == "test" || os.Args[1] == "-t" {
+			fmt.Println(u.Green(u.FixedJsonP(gatewayConfig)))
+			fmt.Println(u.BGreen("the configuration was successful"))
+			return nil
+		}
+
+		if os.Args[1] == "reload" || os.Args[1] == "-r" {
+			shellFile, _ := filepath.Abs(os.Args[0])
+			pidFile := filepath.Join(filepath.Dir(shellFile), ".pid")
+			if !u.FileExists(pidFile) && u.FileExists(".pid") {
+				pidFile = ".pid"
+			}
+			a := strings.SplitN(u.ReadFileN(pidFile), ",", 2)
+			if a[0] == "" {
+				fmt.Println(u.BRed(".pid file not exists"))
+				return nil
+			}
+			err := syscall.Kill(u.Int(a[0]), syscall.SIGUSR1)
+			if err != nil {
+				fmt.Println(u.BRed(err.Error()))
+			} else {
+				fmt.Println(u.BGreen("reload signal was sent to " + a[0] + ", please see result in log"))
+			}
+			return nil
+		}
 	}
+
+	reloadChan := make(chan os.Signal, 1)
+	signal.Notify(reloadChan, syscall.SIGUSR1)
+	go func() {
+		for {
+			sig := <-reloadChan
+			if sig != syscall.SIGUSR1 {
+				break
+			}
+
+			logInfo("reloading config...")
+			config.ResetConfigEnv()
+			errs := config.LoadConfig("gateway", &gatewayConfig)
+			if errs != nil && len(errs) > 0 {
+				for _, err := range errs {
+					fmt.Println(u.BRed(err.Error()))
+				}
+			} else {
+				updateStatic(gatewayConfig.Static)
+				updateRewrite(gatewayConfig.Rewrite)
+				updateProxy(gatewayConfig.Proxy)
+			}
+			logInfo("config reloaded")
+		}
+	}()
 
 	discover.Init()
 	s.Init()
@@ -145,7 +210,9 @@ func AsyncStart() *s.AsyncServer {
 	updateProxy(gatewayConfig.Proxy)
 
 	as := s.AsyncStart()
-
+	as.OnStop(func() {
+		reloadChan <- syscall.SIGTERM
+	})
 	if redisPool != nil {
 		go subscribe()
 		go func() {
@@ -364,9 +431,7 @@ func proxy(request *s.Request) (authLevel int, toApp, toPath *string, headers ma
 						callConfig = u.String(gatewayConfig.CallTimeout.TimeDuration())
 					}
 					if redisPool != nil {
-						if discover.AddExternalApp(finds[0][1], callConfig) {
-							discover.Restart()
-						}
+						discover.AddExternalApp(finds[0][1], callConfig)
 					}
 				}
 				return 0, &finds[0][1], &finds[0][2], outHeaders
