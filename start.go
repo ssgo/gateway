@@ -2,14 +2,6 @@ package main
 
 import (
 	"fmt"
-	redigo "github.com/gomodule/redigo/redis"
-	"github.com/ssgo/config"
-	"github.com/ssgo/discover"
-	"github.com/ssgo/log"
-	"github.com/ssgo/redis"
-	"github.com/ssgo/s"
-	"github.com/ssgo/standard"
-	"github.com/ssgo/u"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -18,6 +10,15 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	redigo "github.com/gomodule/redigo/redis"
+	"github.com/ssgo/config"
+	"github.com/ssgo/discover"
+	"github.com/ssgo/log"
+	"github.com/ssgo/redis"
+	"github.com/ssgo/s"
+	"github.com/ssgo/standard"
+	"github.com/ssgo/u"
 )
 
 var redisPool *redis.Redis
@@ -535,6 +536,9 @@ func updateStatic(in map[string]string) bool {
 		}
 		if a[0] == "*" {
 			a[0] = ""
+		}
+		if a[1] == "" {
+			a[1] = "/"
 		}
 		s.StaticByHost(a[1], v, a[0])
 		updated = true
